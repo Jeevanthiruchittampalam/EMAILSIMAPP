@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 # ------------------------------
 # Configuration
 # ------------------------------
-KEYWORDS = [
+DEFAULT_KEYWORDS = [
     "investment analysis",
     "exit plan",
     "financing thind",  # kept as-is in case it's intentional
@@ -62,9 +62,12 @@ HTML_TEMPLATE = r"""
       --panel:#ffffff;
       --divider:#e6e8f0;
       --tableGrid:#e9ecf5;
-      --stickyBg:#f0f3ff;
+      --stickyBg:#f7f8ff;
       --stickyHeader:#4f63d2;
       --accent:#00bcd4;
+      --warn:#ff6b6b;
+      --highlight:#eef1ff;
+      --shadow: 0 0 0 1px rgba(0,0,0,.03), 0 6px 18px rgba(0,0,0,.06);
     }
     body { font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:linear-gradient(135deg,var(--brand) 0%,var(--brand2) 100%); min-height:100vh; padding:20px; color:var(--ink); }
     .container { max-width:1440px; margin:0 auto; }
@@ -84,16 +87,17 @@ HTML_TEMPLATE = r"""
     .upload-icon { font-size:3em; color:var(--brand); margin-bottom:15px; }
 
     /* Config */
-    .config-wrap { display:grid; grid-template-columns: 1.2fr .8fr; gap:22px; }
-    .card { background:#fff; border:1px solid var(--divider); border-radius:12px; padding:16px; }
+    .config-wrap { display:grid; grid-template-columns: 1.3fr .7fr; gap:22px; }
+    .card { background:#fff; border:1px solid var(--divider); border-radius:12px; padding:16px; box-shadow:var(--shadow); }
     .card h4 { margin-bottom:10px; font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:#444; }
     .desc { color:#555; font-size:13px; margin-top:4px; }
     .keyword-input { display:flex; gap:10px; margin-top:8px; }
     .keyword-input input { flex:1; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; }
     .keyword-input button { padding:12px 20px; background:var(--brand); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; }
-    .keyword-tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; min-height:30px; }
-    .keyword-tag { background:#e8ebff; color:#4c5dd6; padding:6px 12px; border-radius:20px; font-size:13px; display:flex; align-items:center; gap:6px; }
-    .keyword-tag .remove { cursor:pointer; font-weight:bold; color:#ff6b6b; }
+    .chiplist { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .chip { display:inline-flex; align-items:center; gap:8px; background:var(--highlight); color:#3b4cca; padding:6px 12px; border-radius:20px; font-size:13px; border:1px solid #e0e5ff; }
+    .chip .remove { cursor:pointer; color:var(--warn); font-weight:700; }
+    .chip.add-back { background:#fff; color:#3b4cca; border-style:dashed; cursor:pointer; }
 
     /* Mode switch */
     .mode-toggle { display:flex; align-items:center; gap:10px; margin-top:8px; }
@@ -129,23 +133,25 @@ HTML_TEMPLATE = r"""
     .toolbar .clear { background:#fff3f3; color:#c62828; border-color:#ffebee; }
 
     /* Results table */
-    .results-table { background:#fff; border-radius:12px; overflow:auto; box-shadow:0 6px 18px rgba(0,0,0,.06); max-height:66vh; border:1px solid var(--divider); }
+    .results-table { background:#fff; border-radius:12px; overflow:auto; box-shadow:var(--shadow); max-height:66vh; border:1px solid var(--divider); }
     table { width:100%; border-collapse:separate; border-spacing:0; min-width:1480px; }
-    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--tableGrid); border-right:1px solid var(--tableGrid); max-width:560px; word-wrap:break-word; white-space:pre-wrap; vertical-align:top; background:#fff; }
+    th, td { padding:0; border-bottom:1px solid var(--tableGrid); border-right:1px solid var(--tableGrid); vertical-align:top; background:#fff; }
     th:last-child, td:last-child { border-right:none; }
-    thead th { background:var(--brand); color:#fff; position:sticky; top:0; z-index:6; user-select:none; cursor:pointer; letter-spacing:.02em; }
+    thead th { background:var(--brand); color:#fff; position:sticky; top:0; z-index:6; user-select:none; cursor:pointer; letter-spacing:.02em; padding:10px 12px; }
     thead th.sortable:hover { filter:brightness(0.95); }
     thead th .sort-ind { font-size:12px; opacity:0.9; margin-left:6px; }
     tbody tr:nth-child(even) td { background:#fbfbff; }
-    tbody tr:hover td { background:#f4f6ff; }
-    .chip { background:var(--chip); color:var(--chiptext); padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid #cde9cf; }
 
-    /* Sticky columns (distinct color) */
-    td.sticky-1, th.sticky-1 { position:sticky; left:0; z-index:5; background:var(--stickyBg) !important; }
-    td.sticky-2, th.sticky-2 { position:sticky; left:320px; z-index:5; background:var(--stickyBg) !important; }
+    /* inner cell for selectable + scrollable text */
+    .cell { padding:10px 12px; max-height:220px; overflow:auto; white-space:pre-wrap; word-wrap:break-word; }
+    .cell.small { max-height:none; }
+
+    /* Sticky columns with shadows so content doesn't hide underneath */
+    td.sticky-1, th.sticky-1 { position:sticky; left:0; z-index:5; background:var(--stickyBg) !important; box-shadow: 2px 0 0 0 var(--tableGrid); }
+    td.sticky-2, th.sticky-2 { position:sticky; left:340px; z-index:5; background:var(--stickyBg) !important; box-shadow: 2px 0 0 0 var(--tableGrid); }
     th.sticky-1, th.sticky-2 { background:var(--stickyHeader) !important; color:#fff; }
-    .col-0 { width:320px; max-width:320px; }
-    .col-1 { width:600px; max-width:600px; }
+    .col-0 { width:340px; max-width:340px; }
+    .col-1 { width:620px; max-width:620px; }
 
     /* Loading */
     .loading { display:none; text-align:center; padding:22px; color:var(--brand); }
@@ -191,23 +197,18 @@ HTML_TEMPLATE = r"""
           <!-- Keywords card -->
           <div class="card">
             <h4>Keywords</h4>
-            <div class="desc">Add any extra phrases you want to match. Default phrases & important senders are shown below.</div>
+            <div class="desc">Add extra phrases. You can remove defaults with ×, and add them back below.</div>
+
             <div class="keyword-input">
               <input type="text" id="keywordInput" placeholder="Add additional keywords... (press Enter)" />
               <button onclick="addKeyword()">Add</button>
             </div>
-            <div class="keyword-tags" id="keywordTags"></div>
-            <div class="desc" style="margin-top:12px;">
-              <strong>Defaults:</strong>
-              <ul style="list-style:none; display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
-                {% for keyword in default_keywords %}
-                <li style="background:#eef1ff; border:1px solid #e0e5ff; padding:4px 8px; border-radius:12px; font-size:12px;">{{ keyword }}</li>
-                {% endfor %}
-                {% for sender in important_senders %}
-                <li style="background:#eef1ff; border:1px solid #e0e5ff; padding:4px 8px; border-radius:12px; font-size:12px;">{{ sender }} (sender)</li>
-                {% endfor %}
-              </ul>
-            </div>
+
+            <div class="desc" style="margin-top:10px;"><strong>Active terms:</strong></div>
+            <div class="chiplist" id="activeChips"></div>
+
+            <div class="desc" style="margin-top:12px;"><strong>Available defaults:</strong> (click to add back)</div>
+            <div class="chiplist" id="availableDefaults"></div>
           </div>
 
           <!-- Match Mode card -->
@@ -225,7 +226,7 @@ HTML_TEMPLATE = r"""
             </div>
             <div class="actions">
               <button class="process-btn" id="processBtn" onclick="processFile()" disabled>🚀 Process File</button>
-              <span class="help">Tip: tweak keywords or switch mode, then re-run.</span>
+              <span class="help">Tip: change keywords or switch mode, then hit Process again.</span>
             </div>
           </div>
 
@@ -286,9 +287,14 @@ HTML_TEMPLATE = r"""
 
   <script>
     // ------- State -------
-    let additionalKeywords = [];
     let currentFileName = '';
     let resultsData = null;
+
+    // keyword state (defaults can be removed/added)
+    const defaultKeywords = {{ default_keywords|tojson }};
+    let activeKeywords = [...defaultKeywords];     // what the backend will use
+    let removedDefaults = [];                       // defaults you hid, shown in "available defaults"
+    let addedKeywords = [];                         // custom ones you typed
 
     // Client-side table state
     let headers = [];
@@ -359,11 +365,49 @@ HTML_TEMPLATE = r"""
       setTimeout(()=>{a.style.display='none';},8000);
     }
 
-    // ------- Keyword management -------
-    function addKeyword(){ const input=document.getElementById('keywordInput'); const keyword=input.value.trim().toLowerCase(); if(keyword && !additionalKeywords.includes(keyword)){ additionalKeywords.push(keyword); updateKeywordTags(); input.value=''; } }
-    function removeKeyword(k){ additionalKeywords=additionalKeywords.filter(x=>x!==k); updateKeywordTags(); }
-    function updateKeywordTags(){ const c=document.getElementById('keywordTags'); c.innerHTML=additionalKeywords.map(k=>`<div class="keyword-tag">${escapeHtml(k)}<span class="remove" onclick="removeKeyword('${k.replace(/'/g, "\\'")}')">&times;</span></div>`).join(''); }
+    // ------- Keywords UI -------
+    function refreshChips(){
+      // active chips
+      const activeEl = document.getElementById('activeChips');
+      activeEl.innerHTML = activeKeywords.map((k,i)=>(
+        `<span class="chip">${escapeHtml(k)} <span class="remove" title="Remove" onclick="removeActive('${k.replace(/'/g,"\\'")}')">×</span></span>`
+      )).join('');
+
+      // available defaults you removed (click to add back)
+      const availEl = document.getElementById('availableDefaults');
+      const pool = defaultKeywords.filter(k=>!activeKeywords.includes(k));
+      availEl.innerHTML = pool.length ? pool.map(k=>(
+        `<span class="chip add-back" onclick="addBackDefault('${k.replace(/'/g,"\\'")}')">+ ${escapeHtml(k)}</span>`
+      )).join('') : `<span class="desc" style="padding:6px 0;">All defaults are active.</span>`;
+    }
+    function removeActive(k){
+      const idx = activeKeywords.indexOf(k);
+      if(idx>=0){ activeKeywords.splice(idx,1); }
+      // also remove from addedKeywords if present (so it doesn't sneak back later)
+      addedKeywords = addedKeywords.filter(x=>x!==k);
+      refreshChips();
+    }
+    function addBackDefault(k){
+      if(!activeKeywords.includes(k)){ activeKeywords.push(k); }
+      refreshChips();
+    }
+
+    function addKeyword(){
+      const input=document.getElementById('keywordInput');
+      const raw=input.value.trim();
+      if(!raw) return;
+      const keyword = raw.toLowerCase();
+      if(!activeKeywords.includes(keyword)){
+        activeKeywords.push(keyword);
+        addedKeywords.push(keyword);
+      }
+      input.value='';
+      refreshChips();
+    }
     document.getElementById('keywordInput').addEventListener('keypress', e=>{ if(e.key==='Enter'){ addKeyword(); }});
+
+    // initial chips
+    refreshChips();
 
     // ------- Processing -------
     function processFile(){
@@ -371,10 +415,18 @@ HTML_TEMPLATE = r"""
       document.getElementById('loading').style.display='block';
       document.getElementById('resultsSection').style.display='none';
       const requireAll = !!requireAllToggle.checked;
+
+      // send the ACTUAL activeKeywords (defaults ± removals + additions)
+      const payload = {
+        filename: currentFileName,
+        additional_keywords: activeKeywords,  // <-- full set
+        require_all: requireAll
+      };
+
       fetch('/process', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ filename: currentFileName, additional_keywords: additionalKeywords, require_all: requireAll })
+        body: JSON.stringify(payload)
       })
       .then(async r=>{
         try { return await parseResponseAsJson(r); }
@@ -459,13 +511,16 @@ HTML_TEMPLATE = r"""
           const key = headers[colIdx];
           const raw = String(row[key] ?? '');
           const isBody = /body|message|content/i.test(key);
-          const title = escapeHtml(raw);
-          const display = raw.length > (isBody ? 800 : 160) ? escapeHtml(raw.substring(0, isBody?800:160) + '…') : escapeHtml(raw);
           const sticky = colIdx===0 ? 'sticky-1' : (colIdx===1 ? 'sticky-2' : '');
-          // Safely open modal by reading from the cell's title attribute (avoids inline text quoting issues)
-          return `<td class="${sticky}" title="${title}" data-col="${escapeHtml(key)}" onclick="openModalFromCell(this)">${display}</td>`;
+          // inner div .cell: scrollable + selectable
+          const limit = isBody ? 100000 : 100000; // show full content; height is controlled by CSS
+          const display = escapeHtml(raw.substring(0, limit));
+          const title = escapeHtml(raw);
+          return `<td class="${sticky}" title="${title}" data-col="${escapeHtml(key)}">
+                    <div class="cell ${isBody ? '' : 'small'}" ondblclick="openModalFromCell(this.parentElement)">${display}</div>
+                  </td>`;
         }).join('');
-        return `<tr>${cells}<td><span class="chip">${escapeHtml(row._match_reason || '')}</span></td></tr>`;
+        return `<tr>${cells}<td><div class="cell small"><span class="chip" style="background:var(--chip); border:1px solid #cde9cf;">${escapeHtml(row._match_reason || '')}</span></div></td></tr>`;
       }).join('');
 
       resultsTable.innerHTML = `
@@ -624,6 +679,8 @@ def _phrase_in_text(text: str, phrase: str) -> bool:
 
 def _matches_by_mode(full_text: str, phrases: list[str], require_all: bool) -> bool:
     """Implements ANY vs ALL mode for phrase matching."""
+    # When phrases come from UI, ensure strings only
+    phrases = [p for p in phrases if isinstance(p, str) and p.strip()]
     if not phrases:
         return False
     if require_all:
@@ -646,7 +703,7 @@ def _json_error(message: str, code: int = 500):
 def index():
     return render_template_string(
         HTML_TEMPLATE,
-        default_keywords=KEYWORDS,
+        default_keywords=DEFAULT_KEYWORDS,
         important_senders=IMPORTANT_SENDERS,
         display_limit=DISPLAY_LIMIT,
         max_mb=MAX_FILE_MB,
@@ -699,14 +756,19 @@ def upload_file():
 def process_file():
     try:
         data = request.get_json(silent=True) or {}
-        extra = data.get("additional_keywords", [])
+        phrases_in = data.get("additional_keywords", [])
         require_all = bool(data.get("require_all", False))  # ANY vs ALL
 
         if "original_data" not in processed_data:
             return jsonify({"success": False, "error": "No file uploaded"})
 
+        # Normalize phrases from client (they might include defaults +/- removals)
+        phrases: list[str] = []
+        for p in phrases_in:
+            if isinstance(p, str) and p.strip():
+                phrases.append(p.lower().strip())
+
         df: pd.DataFrame = processed_data["original_data"]  # type: ignore
-        all_kw = [k.lower() for k in (KEYWORDS + list(extra)) if isinstance(k, str) and k]
         matches: list[dict] = []
 
         sender_cols = [c for c in df.columns if "from" in c.lower() or "to" in c.lower()]
@@ -717,9 +779,9 @@ def process_file():
             full_text = " ".join(str(row.get(c, "")) for c in df.columns).lower()
 
             # Keyword-mode scan
-            if _matches_by_mode(full_text, all_kw, require_all):
+            if _matches_by_mode(full_text, phrases, require_all):
                 rd = {k: _clean_text(v) if pd.notna(v) else "" for k, v in row.to_dict().items()}
-                rd["_match_reason"] = "Keyword Match" if not require_all else "Keyword Match (ALL)"
+                rd["_match_reason"] = "Keyword Match (ALL)" if require_all else "Keyword Match"
                 matches.append(rd)
                 continue
 
