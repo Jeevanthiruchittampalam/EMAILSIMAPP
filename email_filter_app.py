@@ -3,6 +3,7 @@ import re
 import json
 import tempfile
 import threading
+import traceback
 import webbrowser
 from datetime import datetime
 
@@ -26,7 +27,7 @@ KEYWORDS = [
 IMPORTANT_SENDERS = ["kingset", "abacus north"]
 
 MAX_FILE_MB = 16
-DISPLAY_LIMIT = 500  # rows to render in the table for performance (raised a bit for UX)
+DISPLAY_LIMIT = 500  # rows to render in the table for performance
 
 # ------------------------------
 # Flask setup
@@ -53,73 +54,107 @@ HTML_TEMPLATE = r"""
       --brand:#667eea;
       --brand2:#764ba2;
       --ok:#4caf50;
-      --ink:#333;
+      --ink:#222;
       --muted:#666;
       --bg:#f9faff;
       --chip:#e8f5e8;
       --chiptext:#1b5e20;
+      --panel:#ffffff;
+      --divider:#e6e8f0;
+      --tableGrid:#e9ecf5;
+      --stickyBg:#f0f3ff;
+      --stickyHeader:#4f63d2;
+      --accent:#00bcd4;
     }
     body { font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:linear-gradient(135deg,var(--brand) 0%,var(--brand2) 100%); min-height:100vh; padding:20px; color:var(--ink); }
-    .container { max-width:1400px; margin:0 auto; }
-    .header { text-align:center; color:#fff; margin-bottom:30px; }
-    .header h1 { font-size:2.5em; font-weight:300; margin-bottom:10px; }
+    .container { max-width:1440px; margin:0 auto; }
+    .header { text-align:center; color:#fff; margin-bottom:28px; }
+    .header h1 { font-size:2.6em; font-weight:300; margin-bottom:8px; letter-spacing:.2px; }
     .main-panel { background:rgba(255,255,255,.96); border-radius:20px; box-shadow:0 20px 40px rgba(0,0,0,.1); overflow:hidden; backdrop-filter:blur(10px); }
-    .upload-section { padding:40px; border-bottom:1px solid #e0e0e0; }
+
+    /* Section chrome */
+    .section { padding:26px 40px; background:var(--panel); }
+    .section + .section { border-top:1px solid var(--divider); }
+    .subhead { font-weight:800; font-size:14px; color:#4a4a4a; letter-spacing:.12em; text-transform:uppercase; margin-bottom:12px; }
+
+    /* Upload */
     .upload-zone { border:3px dashed var(--brand); border-radius:15px; padding:40px; text-align:center; background:#f8f9ff; transition:.3s; cursor:pointer; }
     .upload-zone:hover { background:#f0f2ff; border-color:#5a6fd8; transform:translateY(-2px); }
     .upload-zone.dragover { background:#e8ebff; border-color:#4c5dd6; }
     .upload-icon { font-size:3em; color:var(--brand); margin-bottom:15px; }
-    .config-section { padding:24px 40px; background:var(--bg); }
-    .keyword-input { display:flex; gap:10px; margin-bottom:16px; }
+
+    /* Config */
+    .config-wrap { display:grid; grid-template-columns: 1.2fr .8fr; gap:22px; }
+    .card { background:#fff; border:1px solid var(--divider); border-radius:12px; padding:16px; }
+    .card h4 { margin-bottom:10px; font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:#444; }
+    .desc { color:#555; font-size:13px; margin-top:4px; }
+    .keyword-input { display:flex; gap:10px; margin-top:8px; }
     .keyword-input input { flex:1; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; }
     .keyword-input button { padding:12px 20px; background:var(--brand); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; }
-    .keyword-tags { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; min-height:30px; }
+    .keyword-tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; min-height:30px; }
     .keyword-tag { background:#e8ebff; color:#4c5dd6; padding:6px 12px; border-radius:20px; font-size:13px; display:flex; align-items:center; gap:6px; }
     .keyword-tag .remove { cursor:pointer; font-weight:bold; color:#ff6b6b; }
-    .process-btn { width:100%; padding:15px; background:linear-gradient(135deg,var(--brand) 0%,var(--brand2) 100%); color:#fff; border:none; border-radius:10px; font-size:16px; font-weight:600; cursor:pointer; transition:transform .3s; }
-    .process-btn:hover { transform:translateY(-2px); }
+
+    /* Mode switch */
+    .mode-toggle { display:flex; align-items:center; gap:10px; margin-top:8px; }
+    .mode-toggle .switch { position:relative; display:inline-block; width:56px; height:30px; }
+    .mode-toggle .switch input{ opacity:0; width:0; height:0; }
+    .mode-toggle .slider{ position:absolute; cursor:pointer; inset:0; background:#dfe3f7; transition:.2s; border-radius:30px; border:1px solid var(--tableGrid); }
+    .mode-toggle .slider:before{ position:absolute; content:""; height:24px; width:24px; left:3px; top:2px; background:white; transition:.25s; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,.12); }
+    .mode-toggle input:checked + .slider{ background:#c6f7d2; border-color:#b6eabf;}
+    .mode-toggle input:checked + .slider:before{ transform:translateX(26px);}
+    .mode-label{ font-size:13px; color:#333; }
+    .mode-help{ font-size:12px; color:#666; }
+
+    /* Actions */
+    .actions { display:flex; align-items:center; gap:12px; margin-top:14px; }
+    .process-btn { padding:13px 18px; background:linear-gradient(135deg,var(--brand) 0%,var(--brand2) 100%); color:#fff; border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; transition:transform .2s; }
+    .process-btn:hover { transform:translateY(-1px); }
     .process-btn:disabled { opacity:.6; cursor:not-allowed; transform:none; }
-    .results-section { padding:20px 30px 30px; display:none; }
-    .results-header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
-    .results-stats { background:#e8f5e8; color:var(--chiptext); padding:10px 14px; border-radius:10px; border-left:4px solid var(--ok); font-weight:600; }
-    .toolbar { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .toolbar input[type="search"]{ padding:10px 12px; border:1px solid #ddd; border-radius:8px; min-width:240px; }
-    .toolbar select, .toolbar button { padding:10px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
-    .toolbar .download { background:var(--ok); color:#fff; border:none; }
-    .toolbar .csv { background:#009688; color:#fff; border:none; }
-    .results-table { background:#fff; border-radius:10px; overflow:auto; box-shadow:0 4px 15px rgba(0,0,0,.08); max-height:65vh; }
-    table { width:100%; border-collapse:separate; border-spacing:0; min-width:1400px; }
-    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eee; max-width:520px; word-wrap:break-word; white-space:pre-wrap; vertical-align:top; background:#fff; }
-    thead th { background:var(--brand); color:#fff; position:sticky; top:0; z-index:5; user-select:none; cursor:pointer; }
-    thead th.sortable:hover { filter:brightness(0.95); }
-    thead th .sort-ind { font-size:12px; opacity:0.9; margin-left:6px; }
-    tr:nth-child(even) td { background:#fafbff; }
-    tr:hover td { background:#f5f7ff; }
-    .chip { background:var(--chip); color:var(--chiptext); padding:2px 6px; border-radius:10px; font-size:11px; }
-    .loading { display:none; text-align:center; padding:20px; color:var(--brand); }
-    .spinner { border:3px solid #f3f3f3; border-top:3px solid var(--brand); border-radius:50%; width:30px; height:30px; animation:spin 1s linear infinite; margin:0 auto 15px; }
-    @keyframes spin { 0%{transform:rotate(0)} 100%{transform:rotate(360deg)} }
-    .section-title { font-size:1.2em; font-weight:700; color:#333; margin-bottom:10px; }
-    .default-keywords { background:#fff3cd; padding:12px 14px; border-radius:8px; margin-bottom:12px; border-left:4px solid #ffc107; }
-    .default-keywords h4 { color:#856404; margin-bottom:6px; font-size:14px; }
-    .default-keywords ul { list-style:none; display:flex; flex-wrap:wrap; gap:8px; }
-    .default-keywords li { background:#fff; padding:4px 8px; border-radius:15px; font-size:12px; color:#856404; }
+    .help { color:#5c6ac4; font-size:13px; }
+
+    /* Alerts */
     .alert { padding:12px; margin:0 40px 20px; border-radius:8px; display:none; }
     .alert.success { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
     .alert.error { background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
-    mark { padding:0 2px; border-radius:3px; }
 
-    /* Sticky first two columns for readability (subject + body/first col) */
-    td.sticky-1, th.sticky-1 { position:sticky; left:0; z-index:4; }
-    td.sticky-2, th.sticky-2 { position:sticky; left:280px; z-index:4; }
-    th.sticky-1, th.sticky-2 { background:#5568d5; }
-    td.sticky-1, td.sticky-2 { background:#fff; }
-    /* Adjust the default width for first two columns to keep them readable */
-    .col-0 { width:280px; max-width:280px; }
-    .col-1 { width:560px; max-width:560px; }
+    /* Results header & toolbar */
+    .results-header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+    .results-stats { background:#eef8ff; color:#0a4a6b; padding:10px 14px; border-radius:10px; border-left:4px solid var(--accent); font-weight:700; }
+    .toolbar { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .toolbar input[type="search"]{ padding:10px 12px; border:1px solid #d7d9e0; border-radius:8px; min-width:240px; }
+    .toolbar select, .toolbar button { padding:10px 12px; border-radius:8px; border:1px solid #d7d9e0; background:#fff; cursor:pointer; }
+    .toolbar .download { background:var(--ok); color:#fff; border:none; }
+    .toolbar .csv { background:#009688; color:#fff; border:none; }
+    .toolbar .clear { background:#fff3f3; color:#c62828; border-color:#ffebee; }
+
+    /* Results table */
+    .results-table { background:#fff; border-radius:12px; overflow:auto; box-shadow:0 6px 18px rgba(0,0,0,.06); max-height:66vh; border:1px solid var(--divider); }
+    table { width:100%; border-collapse:separate; border-spacing:0; min-width:1480px; }
+    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--tableGrid); border-right:1px solid var(--tableGrid); max-width:560px; word-wrap:break-word; white-space:pre-wrap; vertical-align:top; background:#fff; }
+    th:last-child, td:last-child { border-right:none; }
+    thead th { background:var(--brand); color:#fff; position:sticky; top:0; z-index:6; user-select:none; cursor:pointer; letter-spacing:.02em; }
+    thead th.sortable:hover { filter:brightness(0.95); }
+    thead th .sort-ind { font-size:12px; opacity:0.9; margin-left:6px; }
+    tbody tr:nth-child(even) td { background:#fbfbff; }
+    tbody tr:hover td { background:#f4f6ff; }
+    .chip { background:var(--chip); color:var(--chiptext); padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid #cde9cf; }
+
+    /* Sticky columns (distinct color) */
+    td.sticky-1, th.sticky-1 { position:sticky; left:0; z-index:5; background:var(--stickyBg) !important; }
+    td.sticky-2, th.sticky-2 { position:sticky; left:320px; z-index:5; background:var(--stickyBg) !important; }
+    th.sticky-1, th.sticky-2 { background:var(--stickyHeader) !important; color:#fff; }
+    .col-0 { width:320px; max-width:320px; }
+    .col-1 { width:600px; max-width:600px; }
+
+    /* Loading */
+    .loading { display:none; text-align:center; padding:22px; color:var(--brand); }
+    .spinner { border:3px solid #f3f3f3; border-top:3px solid var(--brand); border-radius:50%; width:32px; height:32px; animation:spin 1s linear infinite; margin:0 auto 15px; }
+    @keyframes spin { 0%{transform:rotate(0)} 100%{transform:rotate(360deg)} }
+
     /* Modal for full cell content */
     .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:24px; }
-    .modal { width:min(1000px, 90vw); max-height:80vh; overflow:auto; background:#fff; border-radius:12px; padding:18px; box-shadow:0 20px 50px rgba(0,0,0,.25); }
+    .modal { width:min(1000px, 90vw); max-height:80vh; overflow:auto; background:#fff; border-radius:12px; padding:18px; box-shadow:0 20px 50px rgba(0,0,0,.25); border:1px solid var(--divider); }
     .modal h3 { margin-bottom:10px; }
     .modal pre { white-space:pre-wrap; word-wrap:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f8f9fb; border:1px solid #eee; padding:12px; border-radius:8px; }
     .modal .close { float:right; border:none; background:#eee; border-radius:8px; padding:6px 10px; cursor:pointer; }
@@ -133,10 +168,13 @@ HTML_TEMPLATE = r"""
     </div>
 
     <div class="main-panel">
+
+      <!-- Alerts (global) -->
       <div class="alert" id="alertBox"></div>
 
-      <!-- Upload Section -->
-      <div class="upload-section">
+      <!-- Section: Upload -->
+      <div class="section">
+        <div class="subhead">Upload</div>
         <div class="upload-zone" id="uploadZone">
           <div class="upload-icon">📁</div>
           <h3>Drop your Excel file here or click to browse</h3>
@@ -145,37 +183,68 @@ HTML_TEMPLATE = r"""
         </div>
       </div>
 
-      <!-- Configuration Section -->
-      <div class="config-section">
-        <div class="section-title">🔧 Search Configuration</div>
-        <div class="default-keywords">
-          <h4>Default Keywords & Senders:</h4>
-          <ul>
-            {% for keyword in default_keywords %}
-            <li>{{ keyword }}</li>
-            {% endfor %}
-            {% for sender in important_senders %}
-            <li>{{ sender }} (sender)</li>
-            {% endfor %}
-          </ul>
-        </div>
+      <!-- Section: Configuration -->
+      <div class="section">
+        <div class="subhead">Configuration</div>
+        <div class="config-wrap">
 
-        <div class="keyword-input">
-          <input type="text" id="keywordInput" placeholder="Add additional keywords... (press Enter)" />
-          <button onclick="addKeyword()">Add Keyword</button>
+          <!-- Keywords card -->
+          <div class="card">
+            <h4>Keywords</h4>
+            <div class="desc">Add any extra phrases you want to match. Default phrases & important senders are shown below.</div>
+            <div class="keyword-input">
+              <input type="text" id="keywordInput" placeholder="Add additional keywords... (press Enter)" />
+              <button onclick="addKeyword()">Add</button>
+            </div>
+            <div class="keyword-tags" id="keywordTags"></div>
+            <div class="desc" style="margin-top:12px;">
+              <strong>Defaults:</strong>
+              <ul style="list-style:none; display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
+                {% for keyword in default_keywords %}
+                <li style="background:#eef1ff; border:1px solid #e0e5ff; padding:4px 8px; border-radius:12px; font-size:12px;">{{ keyword }}</li>
+                {% endfor %}
+                {% for sender in important_senders %}
+                <li style="background:#eef1ff; border:1px solid #e0e5ff; padding:4px 8px; border-radius:12px; font-size:12px;">{{ sender }} (sender)</li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+
+          <!-- Match Mode card -->
+          <div class="card">
+            <h4>Match Mode</h4>
+            <div class="mode-toggle">
+              <label class="switch">
+                <input type="checkbox" id="requireAllToggle" />
+                <span class="slider"></span>
+              </label>
+              <div>
+                <div class="mode-label"><strong id="modeLabel">ANY terms (default)</strong></div>
+                <div class="mode-help">Toggle ON to require <em>all</em> terms to appear somewhere in the email row.</div>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="process-btn" id="processBtn" onclick="processFile()" disabled>🚀 Process File</button>
+              <span class="help">Tip: tweak keywords or switch mode, then re-run.</span>
+            </div>
+          </div>
+
         </div>
-        <div class="keyword-tags" id="keywordTags"></div>
-        <button class="process-btn" id="processBtn" onclick="processFile()" disabled>🚀 Process File</button>
       </div>
 
       <!-- Loading Section -->
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <p>Processing your file...</p>
+      <div class="section" id="loading" style="display:none;">
+        <div class="subhead">Processing</div>
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Crunching your spreadsheet…</p>
+        </div>
       </div>
 
       <!-- Results Section -->
-      <div class="results-section" id="resultsSection">
+      <div class="section" id="resultsSection" style="display:none;">
+        <div class="subhead">Results</div>
+
         <div class="results-header">
           <div class="results-stats" id="resultsStats"></div>
 
@@ -190,6 +259,7 @@ HTML_TEMPLATE = r"""
                 <option value="200">200</option>
               </select>
             </label>
+            <button class="clear" onclick="clearSearch()">Clear search</button>
             <button class="download" onclick="downloadResults()">📥 XLSX</button>
             <button class="csv" onclick="downloadCsv()">⬇️ CSV</button>
           </div>
@@ -229,6 +299,13 @@ HTML_TEMPLATE = r"""
     let pageSize = 50;
     let hiddenCols = new Set(); // column indexes hidden by toggles
 
+    // Mode toggle (ANY vs ALL)
+    const requireAllToggle = document.getElementById('requireAllToggle');
+    const modeLabel = document.getElementById('modeLabel');
+    requireAllToggle.addEventListener('change', ()=>{
+      modeLabel.textContent = requireAllToggle.checked ? 'ALL terms required' : 'ANY terms (default)';
+    });
+
     // ------- Upload handling -------
     const uploadZone = document.getElementById('uploadZone');
     const fileInput = document.getElementById('fileInput');
@@ -244,11 +321,27 @@ HTML_TEMPLATE = r"""
     function handleDrop(e){ e.preventDefault(); uploadZone.classList.remove('dragover'); const files=e.dataTransfer.files; if(files.length>0){ uploadFile(files[0]); } }
     function handleFileSelect(e){ if(e.target.files.length>0){ uploadFile(e.target.files[0]); } }
 
+    // ---- robust JSON fetch helpers ----
+    async function parseResponseAsJson(resp){
+      const text = await resp.text();
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('Bad JSON from server: ' + (e && e.message ? e.message : e)); }
+      } else {
+        // Not JSON – throw the text (likely an HTML error page)
+        throw new Error(`Non-JSON response (${resp.status}):\n` + text.slice(0, 2000));
+      }
+    }
+
     function uploadFile(file){
       if(!file.name.match(/\.(xlsx|xls)$/i)){ showAlert('Please select an Excel file (.xlsx or .xls)','error'); return; }
       const formData=new FormData(); formData.append('file', file);
       fetch('/upload', { method:'POST', body:formData })
-        .then(r=>r.json())
+        .then(async r=>{
+          try { return await parseResponseAsJson(r); }
+          catch (e){ showAlert(String(e), 'error'); throw e; }
+        })
         .then(data=>{
           if(data.success){
             currentFileName=data.filename;
@@ -257,13 +350,13 @@ HTML_TEMPLATE = r"""
             showAlert(`File uploaded successfully: ${data.rows} rows loaded`, 'success');
           } else { showAlert('Error uploading file: '+data.error,'error'); }
         })
-        .catch(err=> showAlert('Upload failed: '+ err.message,'error'));
+        .catch(()=>{ /* already surfaced */ });
     }
 
     function showAlert(message,type){
       const a=document.getElementById('alertBox');
       a.className=`alert ${type}`; a.textContent=message; a.style.display='block';
-      setTimeout(()=>{a.style.display='none';},5000);
+      setTimeout(()=>{a.style.display='none';},8000);
     }
 
     // ------- Keyword management -------
@@ -277,12 +370,16 @@ HTML_TEMPLATE = r"""
       if(!currentFileName){ showAlert('Please upload a file first','error'); return; }
       document.getElementById('loading').style.display='block';
       document.getElementById('resultsSection').style.display='none';
+      const requireAll = !!requireAllToggle.checked;
       fetch('/process', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ filename: currentFileName, additional_keywords: additionalKeywords })
+        body: JSON.stringify({ filename: currentFileName, additional_keywords: additionalKeywords, require_all: requireAll })
       })
-      .then(r=>r.json())
+      .then(async r=>{
+        try { return await parseResponseAsJson(r); }
+        catch (e){ document.getElementById('loading').style.display='none'; showAlert(String(e), 'error'); throw e; }
+      })
       .then(data=>{
         document.getElementById('loading').style.display='none';
         if(data.success){
@@ -295,20 +392,27 @@ HTML_TEMPLATE = r"""
           pageSize = parseInt(document.getElementById('pageSize').value,10);
           initColumnToggles();
           render();
-          showAlert(`Processing complete: ${data.matching_count} emails found`, 'success');
+          const mode = requireAll ? 'ALL terms' : 'ANY terms';
+          showAlert(`Processing complete (${mode}): ${data.matching_count} emails found`, 'success');
         } else {
           showAlert('Processing failed: ' + data.error, 'error');
         }
       })
-      .catch(err=>{
-        document.getElementById('loading').style.display='none';
-        showAlert('Processing failed: '+err.message,'error');
-      });
+      .catch(()=>{ /* already surfaced */ });
     }
 
     // ------- Rendering / Table utilities -------
     function escapeHtml(s){
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function clearSearch(){
+      const box = document.getElementById('globalSearch');
+      if(!box.value) return;
+      box.value = '';
+      filteredRows = rawRows.slice();
+      currentPage = 1;
+      render();
     }
 
     function getVisibleHeaders(){
@@ -320,7 +424,7 @@ HTML_TEMPLATE = r"""
       const resultsStats=document.getElementById('resultsStats');
       const resultsTable=document.getElementById('resultsTable');
 
-      resultsStats.innerHTML = `<strong>📊 Results Found:</strong> ${resultsData.matching_count} matching emails out of ${resultsData.total_count} total — showing up to {{ display_limit }} rows.`;
+      resultsStats.innerHTML = `<strong>📊 Results:</strong> ${resultsData.matching_count} / ${resultsData.total_count} rows matched — showing up to {{ display_limit }} rows here.`;
 
       if(!filteredRows.length){
         resultsTable.innerHTML='<div style="padding:40px; text-align:center; color:#666;">No matching emails found.</div>';
@@ -339,7 +443,7 @@ HTML_TEMPLATE = r"""
 
       // Build header
       const visible = getVisibleHeaders();
-      const ths = visible.map((obj, i) => {
+      const ths = visible.map((obj) => {
         const colIdx = obj.idx;
         const label = escapeHtml(obj.h);
         const sticky = colIdx===0 ? 'sticky-1 col-0' : (colIdx===1 ? 'sticky-2 col-1' : '');
@@ -352,13 +456,14 @@ HTML_TEMPLATE = r"""
       const tds = slice.map(row => {
         const cells = visible.map((obj) => {
           const colIdx = obj.idx;
-          const raw = String(row[headers[colIdx]] || '');
-          const isBody = /body|message|content/i.test(headers[colIdx]);
+          const key = headers[colIdx];
+          const raw = String(row[key] ?? '');
+          const isBody = /body|message|content/i.test(key);
           const title = escapeHtml(raw);
           const display = raw.length > (isBody ? 800 : 160) ? escapeHtml(raw.substring(0, isBody?800:160) + '…') : escapeHtml(raw);
           const sticky = colIdx===0 ? 'sticky-1' : (colIdx===1 ? 'sticky-2' : '');
-          // open modal on click for full view
-          return `<td class="${sticky}" title="${title}" onclick="openModal('${escapeHtml(headers[colIdx])}', \`${title}\`)">${display}</td>`;
+          // Safely open modal by reading from the cell's title attribute (avoids inline text quoting issues)
+          return `<td class="${sticky}" title="${title}" data-col="${escapeHtml(key)}" onclick="openModalFromCell(this)">${display}</td>`;
         }).join('');
         return `<tr>${cells}<td><span class="chip">${escapeHtml(row._match_reason || '')}</span></td></tr>`;
       }).join('');
@@ -398,7 +503,6 @@ HTML_TEMPLATE = r"""
 
     function stableSort(colIdx, dir){
       const key = headers[colIdx];
-      // decorate-sort-undecorate for stability
       const decorated = filteredRows.map((row, i)=>({i, row, v: String(row[key] || '').toLowerCase()}));
       decorated.sort((a,b)=>{
         if(a.v < b.v) return -1*dir;
@@ -436,13 +540,13 @@ HTML_TEMPLATE = r"""
     // ------- Column toggles -------
     function initColumnToggles(){
       const holder = document.getElementById('columnToggles');
-      holder.innerHTML = '<span style="color:#555; font-weight:600;">Columns:</span>';
+      holder.innerHTML = '<span style="color:#555; font-weight:700; letter-spacing:.06em; text-transform:uppercase;">Columns</span>';
       headers.forEach((h, idx)=>{
         const id = 'col_'+idx;
         const checked = !hiddenCols.has(idx) ? 'checked' : '';
         const disabled = (idx===0 || idx===1) ? 'disabled' : ''; // keep first two visible (sticky)
         holder.innerHTML += `
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; background:#fff; padding:4px 8px; border:1px solid #e9ecf5; border-radius:8px;">
             <input type="checkbox" id="${id}" ${checked} ${disabled} onchange="toggleCol(${idx}, this.checked)" />
             ${escapeHtml(h)}
           </label>`;
@@ -459,6 +563,11 @@ HTML_TEMPLATE = r"""
       document.getElementById('modalTitle').textContent = title;
       document.getElementById('modalBody').textContent = body;
       document.getElementById('modalBackdrop').style.display = 'flex';
+    }
+    function openModalFromCell(td){
+      const title = td.getAttribute('data-col') || 'Details';
+      const body = td.getAttribute('title') || '';
+      openModal(title, body);
     }
     function hideModal(ev){ document.getElementById('modalBackdrop').style.display='none'; }
 
@@ -504,15 +613,30 @@ def _clean_text(text: object) -> str:
     return s
 
 
-def _phrase_in_text(text: str, phrases: list[str]) -> bool:
+def _phrase_in_text(text: str, phrase: str) -> bool:
+    """Return True if an exact phrase (word-boundaries) is in the text."""
     if not text:
         return False
     lo = text.lower()
-    for p in phrases:
-        pat = r"\b" + re.escape(p) + r"\b"
-        if re.search(pat, lo):
-            return True
-    return False
+    pat = r"\b" + re.escape(phrase) + r"\b"
+    return re.search(pat, lo) is not None
+
+
+def _matches_by_mode(full_text: str, phrases: list[str], require_all: bool) -> bool:
+    """Implements ANY vs ALL mode for phrase matching."""
+    if not phrases:
+        return False
+    if require_all:
+        return all(_phrase_in_text(full_text, p) for p in phrases)
+    return any(_phrase_in_text(full_text, p) for p in phrases)
+
+
+def _json_error(message: str, code: int = 500):
+    """Return JSON error with a compact traceback string."""
+    tb = traceback.format_exc(limit=3)
+    resp = jsonify({"success": False, "error": f"{message}", "trace": tb})
+    resp.status_code = code
+    return resp
 
 # ------------------------------
 # Routes
@@ -568,19 +692,21 @@ def upload_file():
         return jsonify({"success": True, "filename": filename, "rows": int(len(df))})
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return _json_error(f"Upload failed: {e}")
 
 
 @app.route("/process", methods=["POST"])
 def process_file():
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         extra = data.get("additional_keywords", [])
+        require_all = bool(data.get("require_all", False))  # ANY vs ALL
+
         if "original_data" not in processed_data:
             return jsonify({"success": False, "error": "No file uploaded"})
 
         df: pd.DataFrame = processed_data["original_data"]  # type: ignore
-        all_kw = [k.lower() for k in (KEYWORDS + list(extra)) if k]
+        all_kw = [k.lower() for k in (KEYWORDS + list(extra)) if isinstance(k, str) and k]
         matches: list[dict] = []
 
         sender_cols = [c for c in df.columns if "from" in c.lower() or "to" in c.lower()]
@@ -588,15 +714,16 @@ def process_file():
 
         for _, row in df.iterrows():
             # Join all text for keyword scan
-            full_text = " ".join(str(row.get(c, "")) for c in df.columns)
+            full_text = " ".join(str(row.get(c, "")) for c in df.columns).lower()
 
-            if _phrase_in_text(full_text, all_kw):
+            # Keyword-mode scan
+            if _matches_by_mode(full_text, all_kw, require_all):
                 rd = {k: _clean_text(v) if pd.notna(v) else "" for k, v in row.to_dict().items()}
-                rd["_match_reason"] = "Keyword Match"
+                rd["_match_reason"] = "Keyword Match" if not require_all else "Keyword Match (ALL)"
                 matches.append(rd)
                 continue
 
-            # Sender scan
+            # Sender scan (ANY match of important senders)
             participants = [str(row.get(c, "")) for c in sender_cols]
             if any(any(s in p.lower() for s in imp_senders_lower) for p in participants):
                 rd = {k: _clean_text(v) if pd.notna(v) else "" for k, v in row.to_dict().items()}
@@ -615,7 +742,7 @@ def process_file():
         })
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return _json_error(f"Processing failed: {e}")
 
 
 @app.route("/download")
@@ -642,7 +769,7 @@ def download_results():
         return send_file(output, as_attachment=True, download_name=out_name)
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return _json_error(f"Download failed: {e}")
 
 
 @app.route("/download_csv")
@@ -665,8 +792,7 @@ def download_csv():
         out_name = f"EMAILSIM_output_{timestamp}.csv"
         return send_file(byte_buf, as_attachment=True, download_name=out_name, mimetype="text/csv")
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
+        return _json_error(f"CSV export failed: {e}")
 
 # ------------------------------
 # Dev server bootstrap
