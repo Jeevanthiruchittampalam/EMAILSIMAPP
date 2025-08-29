@@ -450,3 +450,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# expose the Flask app for gunicorn
+application = app
