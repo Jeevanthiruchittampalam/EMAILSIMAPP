@@ -126,7 +126,7 @@ HTML_TEMPLATE = r"""
 <body>
   <div class="container">
     <div class="header">
-      <h1>📧 Seville Email Analysis Tool 📊</h1>
+      <h1>📧 Seville Email Analysis Tool </h1>
       <p>Upload Excel files and filter emails by keywords</p>
     </div>
 
